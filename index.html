@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>City Labels Loading … </title>
+  <link href="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { height: 100%; display: grid; grid-template-rows: auto 1fr; background: #f7f7f7; }
+    header { padding: 10px 12px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+    header .meta { margin-left:auto; font-size:12px; opacity:.7 }
+    #map { position: relative; height: 100%; }
+    .controls { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    .controls button, .controls input[type="range"] { cursor: pointer; }
+    .controls button { padding:6px 10px; border:1px solid #ddd; border-radius:12px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.06); font-size:12px; }
+    .counter { font-size:12px; opacity:.8 }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>City Labels Loading … </h1>
+      <div class="controls">
+        <button id="toggle">Pause</button>
+        <label style="font-size:12px">Speed <input id="speed" type="range" min="100" max="1500" step="50" value="500"></label>
+        <button id="collision">Collision: On</button>
+        <span class="counter" id="counter">0 / 0</span>
+      </div>
+      <div class="meta">Tripgeo, Maps Mania</div>
+    </header>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.3.2/dist/maplibre-gl.js"></script>
+  <script>
+  // Blank style (no tiles)
+  const blankStyle = {
+    version: 8,
+    name: "Blank",
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {},
+    layers: [
+      { id: "background", type: "background", paint: { "background-color": "#ffffff" } }
+    ]
+  };
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: blankStyle,
+    center: [0, 20],
+    zoom: 1.4,
+    attributionControl: false
+  });
+
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+  const citiesSourceId = 'cities';
+  const citiesLayerId = 'city-labels';
+
+  let cities = [];
+  let idx = 0;
+  let timer = null;
+  let delay = 500;
+  let collisionEnabled = true;
+
+  const counterEl = document.getElementById('counter');
+  const toggleBtn = document.getElementById('toggle');
+  const speedInput = document.getElementById('speed');
+  const collisionBtn = document.getElementById('collision');
+
+  function setCounter() {
+    counterEl.textContent = `${Math.min(idx, cities.length)} / ${cities.length}`;
+  }
+
+  function startTimer() {
+    stopTimer();
+    timer = setInterval(addNextCity, delay);
+    toggleBtn.textContent = 'Pause';
+  }
+  function stopTimer() {
+    if (timer) { clearInterval(timer); timer = null; }
+    toggleBtn.textContent = 'Resume';
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    if (timer) stopTimer(); else startTimer();
+  });
+
+  speedInput.addEventListener('input', (e) => {
+    const max = Number(e.target.max);
+    const min = Number(e.target.min);
+    const value = Number(e.target.value);
+    const inverted = max - (value - min);
+    delay = inverted;
+    if (timer) startTimer();
+  });
+
+  collisionBtn.addEventListener('click', () => {
+    collisionEnabled = !collisionEnabled;
+    collisionBtn.textContent = `Collision: ${collisionEnabled ? 'On' : 'Off'}`;
+    map.setLayoutProperty(citiesLayerId, 'text-allow-overlap', !collisionEnabled);
+    map.setLayoutProperty(citiesLayerId, 'text-ignore-placement', !collisionEnabled);
+  });
+
+  function addNextCity() {
+    if (idx >= cities.length) {
+      stopTimer();
+      toggleBtn.disabled = true;
+      return;
+    }
+    const c = cities[idx++];
+
+    const src = map.getSource(citiesSourceId);
+    const data = src._data;
+
+    data.features.push({
+      type: 'Feature',
+      properties: { name: c.name, pop: c.pop || null },
+      geometry: { type: 'Point', coordinates: [c.lng, c.lat] }
+    });
+
+    src.setData(data);
+    setCounter();
+  }
+
+  async function loadCities() {
+    const url = 'https://mapsmania.github.io/geocoder/cities.json';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to load cities.json');
+    const raw = await res.json();
+
+    cities = raw
+      .filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lng) && c.name)
+      .sort((a, b) => (b.pop || 0) - (a.pop || 0));
+
+    setCounter();
+  }
+
+  map.on('load', async () => {
+    map.addSource(citiesSourceId, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
+    map.addLayer({
+      id: citiesLayerId,
+      type: 'symbol',
+      source: citiesSourceId,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': [
+          'interpolate', ['linear'], ['zoom'],
+          0, 8,
+          2, 10,
+          4, 12
+        ],
+        'text-font': ['Noto Sans Regular'],
+        'text-offset': [0, 0],
+        'text-anchor': 'center',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false
+      },
+      paint: {
+        'text-color': '#111111',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.2,
+        'text-halo-blur': 0.5
+      }
+    });
+
+    try {
+      await loadCities();
+      startTimer();
+    } catch (err) {
+      console.error(err);
+      alert('Error loading city data. See console for details.');
+    }
+  });
+
+  </script>
+</body>
+</html>
