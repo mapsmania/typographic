@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -26,6 +27,7 @@
         <button id="toggle">Pause</button>
         <label style="font-size:12px">Speed <input id="speed" type="range" min="100" max="1500" step="50" value="500"></label>
         <button id="collision">Collision: On</button>
+        <button id="fastForward">Fast Forward</button>
         <span class="counter" id="counter">0 / 0</span>
       </div>
       <div class="meta"><a href="https://www.tripgeo.com/" target="_blank">Tripgeo</a>, <a href="https://googlemapsmania.blogspot.com/" target="_blank">Maps Mania</a></div>
@@ -69,6 +71,7 @@
   const toggleBtn = document.getElementById('toggle');
   const speedInput = document.getElementById('speed');
   const collisionBtn = document.getElementById('collision');
+  const fastForwardBtn = document.getElementById('fastForward');
 
   function setCounter() {
     counterEl.textContent = `${Math.min(idx, cities.length)} / ${cities.length}`;
@@ -103,6 +106,61 @@
     map.setLayoutProperty(citiesLayerId, 'text-allow-overlap', !collisionEnabled);
     map.setLayoutProperty(citiesLayerId, 'text-ignore-placement', !collisionEnabled);
   });
+
+  fastForwardBtn.addEventListener('click', fastForward);    
+
+  function fastForward() {
+    stopTimer();
+    const src = map.getSource(citiesSourceId);
+    const data = src._data;
+
+    // Add all remaining cities at once
+    for (; idx < cities.length; idx++) {
+        const c = cities[idx];
+        data.features.push({
+            type: 'Feature',
+            properties: { name: c.name, pop: c.pop || null },
+            geometry: { type: 'Point', coordinates: [c.lng, c.lat] }
+        });
+    }
+    src.setData(data);
+    setCounter();
+    toggleBtn.disabled = true;
+    
+    // Change the button text to "Reset" and update its functionality
+    fastForwardBtn.textContent = 'Reset';
+    fastForwardBtn.removeEventListener('click', fastForward);
+    fastForwardBtn.addEventListener('click', resetAnimation);
+}
+
+function resetAnimation() {
+    // Stop the current timer
+    stopTimer();
+    
+    // Reset the index counter
+    idx = 0;
+    
+    // Clear all features from the source data
+    const src = map.getSource(citiesSourceId);
+    src.setData({
+        type: 'FeatureCollection',
+        features: []
+    });
+    
+    // Reset the counter display
+    setCounter();
+    
+    // Re-enable the pause/resume button
+    toggleBtn.disabled = false;
+    
+    // Change the button back to "Fast Forward" and restore its original functionality
+    fastForwardBtn.textContent = 'Fast Forward';
+    fastForwardBtn.removeEventListener('click', resetAnimation);
+    fastForwardBtn.addEventListener('click', fastForward);
+    
+    // Restart the animation
+    startTimer();
+}
 
   function addNextCity() {
     if (idx >= cities.length) {
